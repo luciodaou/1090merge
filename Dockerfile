@@ -2,23 +2,30 @@
 FROM alpine:latest
 
 # Install dependencies
-RUN apk add --no-cache netcat-openbsd coreutils dcron
+RUN apk add --no-cache netcat-openbsd coreutils logrotate
 
-# Copy the script to capture and store the data
-COPY scripts/ /app
-RUN chmod +x /app/*
+# Create necessary directories
+RUN mkdir -p /scripts /etc/logrotate.d
+# Copy the scripts into the container
+COPY scripts/capture.sh /capture.sh
 
-# Add cronjob entry
-RUN echo "0 0 * * * /app/cronjob.sh" > /crontab.txt
-RUN crontab /crontab.txt
-
-# Create the data directory
-RUN mkdir /data
-
-RUN touch /data/adsb.csv
-
-# Set environment variable for hosts
-ENV HOSTS ""
-
-# Start the cron service and the script with the passed hosts
-CMD [ "sh", "-c", "/app/capture.sh" ]
+# Make the scripts executable
+RUN chmod +x /capture.sh
+# Create logrotate configuration file for adsb.csv
+RUN echo '/data/adsb.csv {\
+create 0644 root root\
+daily\
+rotate 7\
+olddir /data\
+missingok\
+notifempty\
+compress\
+delaycompress\
+postrotate\
+pkill -HUP -f "sh /capture.sh"\
+endscript\
+}' > /etc/logrotate.d/adsb
+# Create a crontab file
+RUN echo '0 0 * * * /usr/sbin/logrotate /etc/logrotate.d/adsb' > /etc/crontabs/root
+# Set the default command to run on container startup
+CMD crond -l 2 -f & sh /capture.sh
